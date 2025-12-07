@@ -1,0 +1,13 @@
+# Redirect all requests to Node.js app
+RewriteEngine On
+
+# Handle API requests through Node.js proxy
+RewriteRule ^api/(.*)$ http://localhost:3001/api/$1 [P,L]
+
+# Proxy settings
+<IfModule mod_proxy.c>
+    ProxyPreserveHost On
+    ProxyPass /api http://localhost:3001/api
+    ProxyPassReverse /api http://localhost:3001/api
+</IfModule>
+

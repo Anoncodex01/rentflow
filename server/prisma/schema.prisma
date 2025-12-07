@@ -1,0 +1,80 @@
+// Prisma Schema for RentFlow
+// SQLite Database
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = "file:./rentflow.db"
+}
+
+model User {
+  id        String   @id @default(cuid())
+  email     String   @unique
+  password  String
+  name      String
+  role      String   @default("viewer") // admin, manager, viewer
+  avatar    String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model Room {
+  id          String    @id @default(cuid())
+  roomNumber  String    @unique
+  roomName    String?
+  monthlyRent Float
+  status      String    @default("vacant") // occupied, vacant
+  images      String?   // JSON array stored as string
+  notes       String?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  
+  tenant      Tenant?
+  payments    Payment[]
+}
+
+model Tenant {
+  id          String    @id @default(cuid())
+  name        String
+  phone       String
+  idNumber    String?
+  moveInDate  DateTime
+  moveOutDate DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  
+  roomId      String    @unique
+  room        Room      @relation(fields: [roomId], references: [id])
+  payments    Payment[]
+}
+
+model Payment {
+  id           String   @id @default(cuid())
+  amount       Float
+  datePaid     DateTime?
+  monthPaidFor String
+  status       String   @default("pending") // paid, pending
+  batchId      String?  // Groups multiple month payments together
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+  
+  tenantId     String
+  tenant       Tenant   @relation(fields: [tenantId], references: [id])
+  roomId       String
+  room         Room     @relation(fields: [roomId], references: [id])
+}
+
+model Alert {
+  id        String   @id @default(cuid())
+  type      String   // rent_due, rent_overdue, vacant_room
+  message   String
+  roomId    String?
+  tenantId  String?
+  date      DateTime
+  isRead    Boolean  @default(false)
+  createdAt DateTime @default(now())
+}
+
