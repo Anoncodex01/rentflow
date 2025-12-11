@@ -6,7 +6,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { usePayments, useTenants, useRooms, useAlerts } from '@/hooks/use-api';
-import { Plus, Search, Filter, CreditCard, TrendingUp, Clock, CheckCircle2, Loader2, Eye, Download } from 'lucide-react';
+import { Plus, Search, Filter, CreditCard, TrendingUp, Clock, CheckCircle2, Loader2, Eye, Download, Trash2 } from 'lucide-react';
 import { CreatePaymentData, Payment } from '@/lib/api';
 import { cn } from '@/lib/utils';
 import {
@@ -90,7 +90,7 @@ const Payments = () => {
   const [isAddDialogOpen, setIsAddDialogOpen] = useState(false);
   const [isViewDialogOpen, setIsViewDialogOpen] = useState(false);
   const [selectedGroupedPayment, setSelectedGroupedPayment] = useState<GroupedPayment | null>(null);
-  const { payments, isLoading: paymentsLoading, addPayment, markAsPaid } = usePayments();
+  const { payments, isLoading: paymentsLoading, addPayment, markAsPaid, deletePayment } = usePayments();
   const { tenants, isLoading: tenantsLoading } = useTenants();
   const { rooms, isLoading: roomsLoading } = useRooms();
   const { alerts } = useAlerts();
@@ -140,6 +140,29 @@ const Payments = () => {
       toast({
         title: 'Error',
         description: error instanceof Error ? error.message : 'Failed to update payments',
+        variant: 'destructive',
+      });
+    }
+  };
+
+  const handleDelete = async (groupedPayment: GroupedPayment) => {
+    if (!confirm(`Are you sure you want to delete ${groupedPayment.monthCount} payment(s) for ${groupedPayment.tenant?.name || 'Unknown'}?`)) {
+      return;
+    }
+
+    try {
+      // Delete all payments in the group
+      for (const payment of groupedPayment.payments) {
+        await deletePayment(payment.id);
+      }
+      toast({
+        title: 'Payments Deleted',
+        description: `${groupedPayment.monthCount} payment(s) have been deleted.`,
+      });
+    } catch (error) {
+      toast({
+        title: 'Error',
+        description: error instanceof Error ? error.message : 'Failed to delete payments',
         variant: 'destructive',
       });
     }
@@ -354,6 +377,14 @@ const Payments = () => {
                     Mark Paid
                   </Button>
                 )}
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="text-destructive hover:text-destructive hover:bg-destructive/10"
+                  onClick={() => handleDelete(group)}
+                >
+                  <Trash2 className="h-4 w-4" />
+                </Button>
               </div>
             </div>
           ))}
@@ -434,6 +465,14 @@ const Payments = () => {
                             <CheckCircle2 className="h-4 w-4" />
                           </Button>
                         )}
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="text-destructive hover:text-destructive hover:bg-destructive/10"
+                          onClick={() => handleDelete(group)}
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
                       </div>
                     </TableCell>
                   </TableRow>

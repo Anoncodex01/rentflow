@@ -170,11 +170,24 @@ export function AddPaymentDialog({
     reset();
     setSelectedTenant(null);
     setSelectedRoom(null);
-    setDatePaid(new Date());
-    setStartingMonth(new Date());
+    // Reset dates to current date when closing
+    const now = new Date();
+    setDatePaid(now);
+    setStartingMonth(now);
+    setDatePaidCalendarOpen(false);
+    setStartingMonthCalendarOpen(false);
     setIsSubmitting(false);
     onOpenChange(false);
   };
+
+  // Reset dates when dialog opens
+  useEffect(() => {
+    if (open) {
+      const now = new Date();
+      setDatePaid(now);
+      setStartingMonth(now);
+    }
+  }, [open]);
 
   // Filter tenants who have a room assigned
   const tenantsWithRooms = tenants.filter(t => {

@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { Layout } from '@/components/layout/Layout';
 import { TenantRow } from '@/components/tenants/TenantRow';
 import { AddTenantDialog } from '@/components/tenants/AddTenantDialog';
+import { EditTenantDialog } from '@/components/tenants/EditTenantDialog';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { useTenants, useRooms, useAlerts, usePayments, calculateRentExpiration } from '@/hooks/use-api';
@@ -20,7 +21,9 @@ import { TenantCard } from '@/components/tenants/TenantCard';
 const Tenants = () => {
   const [searchQuery, setSearchQuery] = useState('');
   const [isAddDialogOpen, setIsAddDialogOpen] = useState(false);
-  const { tenants, isLoading: tenantsLoading, addTenant, deleteTenant } = useTenants();
+  const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
+  const [selectedTenant, setSelectedTenant] = useState<Tenant | null>(null);
+  const { tenants, isLoading: tenantsLoading, addTenant, updateTenant, deleteTenant } = useTenants();
   const { rooms, isLoading: roomsLoading, refetch: refetchRooms } = useRooms();
   const { payments, isLoading: paymentsLoading } = usePayments();
   const { alerts } = useAlerts();
@@ -71,10 +74,26 @@ const Tenants = () => {
   };
 
   const handleEdit = (tenant: Tenant) => {
-    toast({
-      title: 'Edit Tenant',
-      description: 'Edit functionality coming soon.',
-    });
+    setSelectedTenant(tenant);
+    setIsEditDialogOpen(true);
+  };
+
+  const handleUpdateTenant = async (tenantId: string, data: Partial<Tenant>) => {
+    try {
+      await updateTenant(tenantId, data);
+      refetchRooms();
+      toast({
+        title: 'Tenant Updated',
+        description: `${data.name || selectedTenant?.name} has been successfully updated.`,
+      });
+    } catch (error) {
+      toast({
+        title: 'Error',
+        description: error instanceof Error ? error.message : 'Failed to update tenant',
+        variant: 'destructive',
+      });
+      throw error;
+    }
   };
 
   const handleDelete = async (tenant: Tenant) => {
@@ -247,6 +266,15 @@ const Tenants = () => {
           onOpenChange={setIsAddDialogOpen}
           availableRooms={vacantRooms}
           onAddTenant={handleAddTenant}
+        />
+
+        {/* Edit Tenant Dialog */}
+        <EditTenantDialog
+          open={isEditDialogOpen}
+          onOpenChange={setIsEditDialogOpen}
+          tenant={selectedTenant}
+          room={selectedTenant ? getRoomForTenant(selectedTenant.roomId) : undefined}
+          onUpdateTenant={handleUpdateTenant}
         />
       </div>
     </Layout>
