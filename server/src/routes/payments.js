@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { authMiddleware } from '../middleware/auth.js';
+import { handleSupabaseError, toCamelCase, toSnakeCase } from '../lib/supabase.js';
 
 const router = Router();
 
@@ -8,15 +9,32 @@ router.use(authMiddleware);
 // GET /api/payments
 router.get('/', async (req, res) => {
   try {
-    const payments = await req.prisma.payment.findMany({
-      include: {
-        tenant: true,
-        room: true
-      },
-      orderBy: { createdAt: 'desc' }
+    const { data: payments, error } = await req.supabase
+      .from('payments')
+      .select(`
+        *,
+        tenants (*),
+        rooms (*)
+      `)
+      .order('created_at', { ascending: false });
+
+    if (error) {
+      const errorMsg = handleSupabaseError(error);
+      return res.status(500).json(errorMsg);
+    }
+
+    const formatted = payments.map(payment => {
+      const p = toCamelCase(payment);
+      return {
+        ...p,
+        tenant: p.tenants || null,
+        room: p.rooms || null,
+        tenants: undefined,
+        rooms: undefined
+      };
     });
 
-    res.json(payments);
+    res.json(formatted);
   } catch (error) {
     console.error('Get payments error:', error);
     res.status(500).json({ error: 'Failed to fetch payments' });
@@ -26,19 +44,28 @@ router.get('/', async (req, res) => {
 // GET /api/payments/:id
 router.get('/:id', async (req, res) => {
   try {
-    const payment = await req.prisma.payment.findUnique({
-      where: { id: req.params.id },
-      include: {
-        tenant: true,
-        room: true
-      }
-    });
+    const { data: payment, error } = await req.supabase
+      .from('payments')
+      .select(`
+        *,
+        tenants (*),
+        rooms (*)
+      `)
+      .eq('id', req.params.id)
+      .single();
 
-    if (!payment) {
+    if (error || !payment) {
       return res.status(404).json({ error: 'Payment not found' });
     }
 
-    res.json(payment);
+    const formatted = toCamelCase(payment);
+    res.json({
+      ...formatted,
+      tenant: formatted.tenants || null,
+      room: formatted.rooms || null,
+      tenants: undefined,
+      rooms: undefined
+    });
   } catch (error) {
     console.error('Get payment error:', error);
     res.status(500).json({ error: 'Failed to fetch payment' });
@@ -54,23 +81,39 @@ router.post('/', async (req, res) => {
       return res.status(400).json({ error: 'Tenant, room, amount, and month are required' });
     }
 
-    const payment = await req.prisma.payment.create({
-      data: {
-        tenantId,
-        roomId,
-        amount: parseFloat(amount),
-        datePaid: datePaid ? new Date(datePaid) : null,
-        monthPaidFor,
-        status,
-        batchId
-      },
-      include: {
-        tenant: true,
-        room: true
-      }
+    const paymentData = toSnakeCase({
+      tenantId,
+      roomId,
+      amount: parseFloat(amount),
+      datePaid: datePaid ? new Date(datePaid).toISOString() : null,
+      monthPaidFor,
+      status,
+      batchId
     });
 
-    res.status(201).json(payment);
+    const { data: payment, error } = await req.supabase
+      .from('payments')
+      .insert(paymentData)
+      .select(`
+        *,
+        tenants (*),
+        rooms (*)
+      `)
+      .single();
+
+    if (error) {
+      const errorMsg = handleSupabaseError(error);
+      return res.status(500).json(errorMsg);
+    }
+
+    const formatted = toCamelCase(payment);
+    res.status(201).json({
+      ...formatted,
+      tenant: formatted.tenants || null,
+      room: formatted.rooms || null,
+      tenants: undefined,
+      rooms: undefined
+    });
   } catch (error) {
     console.error('Create payment error:', error);
     res.status(500).json({ error: 'Failed to create payment' });
@@ -82,21 +125,42 @@ router.put('/:id', async (req, res) => {
   try {
     const { amount, datePaid, monthPaidFor, status } = req.body;
 
-    const payment = await req.prisma.payment.update({
-      where: { id: req.params.id },
-      data: {
-        amount: amount ? parseFloat(amount) : undefined,
-        datePaid: datePaid ? new Date(datePaid) : undefined,
-        monthPaidFor,
-        status
-      },
-      include: {
-        tenant: true,
-        room: true
-      }
-    });
+    const updateData = {};
+    if (amount !== undefined) updateData.amount = parseFloat(amount);
+    if (datePaid !== undefined) {
+      updateData.date_paid = datePaid ? new Date(datePaid).toISOString() : null;
+    }
+    if (monthPaidFor !== undefined) updateData.month_paid_for = monthPaidFor;
+    if (status !== undefined) updateData.status = status;
 
-    res.json(payment);
+    const { data: payment, error } = await req.supabase
+      .from('payments')
+      .update(updateData)
+      .eq('id', req.params.id)
+      .select(`
+        *,
+        tenants (*),
+        rooms (*)
+      `)
+      .single();
+
+    if (error) {
+      const errorMsg = handleSupabaseError(error);
+      return res.status(500).json(errorMsg);
+    }
+
+    if (!payment) {
+      return res.status(404).json({ error: 'Payment not found' });
+    }
+
+    const formatted = toCamelCase(payment);
+    res.json({
+      ...formatted,
+      tenant: formatted.tenants || null,
+      room: formatted.rooms || null,
+      tenants: undefined,
+      rooms: undefined
+    });
   } catch (error) {
     console.error('Update payment error:', error);
     res.status(500).json({ error: 'Failed to update payment' });
@@ -106,19 +170,37 @@ router.put('/:id', async (req, res) => {
 // PATCH /api/payments/:id/mark-paid
 router.patch('/:id/mark-paid', async (req, res) => {
   try {
-    const payment = await req.prisma.payment.update({
-      where: { id: req.params.id },
-      data: {
+    const { data: payment, error } = await req.supabase
+      .from('payments')
+      .update({
         status: 'paid',
-        datePaid: new Date()
-      },
-      include: {
-        tenant: true,
-        room: true
-      }
-    });
+        date_paid: new Date().toISOString()
+      })
+      .eq('id', req.params.id)
+      .select(`
+        *,
+        tenants (*),
+        rooms (*)
+      `)
+      .single();
 
-    res.json(payment);
+    if (error) {
+      const errorMsg = handleSupabaseError(error);
+      return res.status(500).json(errorMsg);
+    }
+
+    if (!payment) {
+      return res.status(404).json({ error: 'Payment not found' });
+    }
+
+    const formatted = toCamelCase(payment);
+    res.json({
+      ...formatted,
+      tenant: formatted.tenants || null,
+      room: formatted.rooms || null,
+      tenants: undefined,
+      rooms: undefined
+    });
   } catch (error) {
     console.error('Mark paid error:', error);
     res.status(500).json({ error: 'Failed to mark payment as paid' });
@@ -128,9 +210,15 @@ router.patch('/:id/mark-paid', async (req, res) => {
 // DELETE /api/payments/:id
 router.delete('/:id', async (req, res) => {
   try {
-    await req.prisma.payment.delete({
-      where: { id: req.params.id }
-    });
+    const { error } = await req.supabase
+      .from('payments')
+      .delete()
+      .eq('id', req.params.id);
+
+    if (error) {
+      const errorMsg = handleSupabaseError(error);
+      return res.status(500).json(errorMsg);
+    }
 
     res.json({ message: 'Payment deleted successfully' });
   } catch (error) {
@@ -140,4 +228,3 @@ router.delete('/:id', async (req, res) => {
 });
 
 export default router;
-

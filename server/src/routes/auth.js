@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import bcrypt from 'bcryptjs';
 import { generateToken, authMiddleware } from '../middleware/auth.js';
+import { supabase, handleSupabaseError, toCamelCase } from '../lib/supabase.js';
 
 const router = Router();
 
@@ -13,14 +14,17 @@ router.post('/login', async (req, res) => {
       return res.status(400).json({ error: 'Email and password are required' });
     }
 
-    const user = await req.prisma.user.findUnique({
-      where: { email: email.toLowerCase() }
-    });
+    const { data: users, error } = await supabase
+      .from('users')
+      .select('*')
+      .eq('email', email.toLowerCase())
+      .single();
 
-    if (!user) {
+    if (error || !users) {
       return res.status(401).json({ error: 'No account found with this email address' });
     }
 
+    const user = toCamelCase(users);
     const isValidPassword = await bcrypt.compare(password, user.password);
 
     if (!isValidPassword) {
@@ -64,9 +68,12 @@ router.post('/register', async (req, res) => {
       return res.status(400).json({ error: 'Email, password, and name are required' });
     }
 
-    const existingUser = await req.prisma.user.findUnique({
-      where: { email: email.toLowerCase() }
-    });
+    // Check if user exists
+    const { data: existingUser } = await supabase
+      .from('users')
+      .select('id')
+      .eq('email', email.toLowerCase())
+      .single();
 
     if (existingUser) {
       return res.status(400).json({ error: 'Email already registered' });
@@ -74,24 +81,32 @@ router.post('/register', async (req, res) => {
 
     const hashedPassword = await bcrypt.hash(password, 10);
 
-    const user = await req.prisma.user.create({
-      data: {
+    const { data: user, error } = await supabase
+      .from('users')
+      .insert({
         email: email.toLowerCase(),
         password: hashedPassword,
         name,
         role
-      }
-    });
+      })
+      .select()
+      .single();
 
-    const token = generateToken(user);
+    if (error) {
+      const errorMsg = handleSupabaseError(error);
+      return res.status(500).json(errorMsg);
+    }
+
+    const formattedUser = toCamelCase(user);
+    const token = generateToken(formattedUser);
 
     res.status(201).json({
       user: {
-        id: user.id,
-        email: user.email,
-        name: user.name,
-        role: user.role,
-        avatar: user.avatar
+        id: formattedUser.id,
+        email: formattedUser.email,
+        name: formattedUser.name,
+        role: formattedUser.role,
+        avatar: formattedUser.avatar
       },
       token
     });

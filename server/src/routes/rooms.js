@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { authMiddleware } from '../middleware/auth.js';
+import { handleSupabaseError, toCamelCase, toSnakeCase } from '../lib/supabase.js';
 
 const router = Router();
 
@@ -9,18 +10,29 @@ router.use(authMiddleware);
 // GET /api/rooms
 router.get('/', async (req, res) => {
   try {
-    const rooms = await req.prisma.room.findMany({
-      include: {
-        tenant: true
-      },
-      orderBy: { roomNumber: 'asc' }
-    });
+    const { data: rooms, error } = await req.supabase
+      .from('rooms')
+      .select(`
+        *,
+        tenants (*)
+      `)
+      .order('room_number', { ascending: true });
 
-    // Parse images JSON string back to array
-    const formattedRooms = rooms.map(room => ({
-      ...room,
-      images: room.images ? JSON.parse(room.images) : []
-    }));
+    if (error) {
+      const errorMsg = handleSupabaseError(error);
+      return res.status(500).json(errorMsg);
+    }
+
+    // Format rooms: convert snake_case to camelCase and handle images
+    const formattedRooms = rooms.map(room => {
+      const formatted = toCamelCase(room);
+      return {
+        ...formatted,
+        images: formatted.images || [],
+        tenant: formatted.tenants?.[0] || null,
+        tenants: undefined // Remove tenants array, keep only tenant
+      };
+    });
 
     res.json(formattedRooms);
   } catch (error) {
@@ -32,18 +44,25 @@ router.get('/', async (req, res) => {
 // GET /api/rooms/:id
 router.get('/:id', async (req, res) => {
   try {
-    const room = await req.prisma.room.findUnique({
-      where: { id: req.params.id },
-      include: { tenant: true }
-    });
+    const { data: room, error } = await req.supabase
+      .from('rooms')
+      .select(`
+        *,
+        tenants (*)
+      `)
+      .eq('id', req.params.id)
+      .single();
 
-    if (!room) {
+    if (error || !room) {
       return res.status(404).json({ error: 'Room not found' });
     }
 
+    const formatted = toCamelCase(room);
     res.json({
-      ...room,
-      images: room.images ? JSON.parse(room.images) : []
+      ...formatted,
+      images: formatted.images || [],
+      tenant: formatted.tenants?.[0] || null,
+      tenants: undefined
     });
   } catch (error) {
     console.error('Get room error:', error);
@@ -61,28 +80,40 @@ router.post('/', async (req, res) => {
     }
 
     // Check if room number already exists
-    const existingRoom = await req.prisma.room.findUnique({
-      where: { roomNumber: roomNumber.toUpperCase() }
-    });
+    const { data: existingRoom } = await req.supabase
+      .from('rooms')
+      .select('id')
+      .eq('room_number', roomNumber.toUpperCase())
+      .single();
 
     if (existingRoom) {
       return res.status(400).json({ error: 'Room number already exists' });
     }
 
-    const room = await req.prisma.room.create({
-      data: {
-        roomNumber: roomNumber.toUpperCase(),
-        roomName,
-        monthlyRent: parseFloat(monthlyRent),
-        status: 'vacant',
-        images: images ? JSON.stringify(images) : null,
-        notes
-      }
+    const roomData = toSnakeCase({
+      roomNumber: roomNumber.toUpperCase(),
+      roomName,
+      monthlyRent: parseFloat(monthlyRent),
+      status: 'vacant',
+      images: images || null,
+      notes
     });
 
+    const { data: room, error } = await req.supabase
+      .from('rooms')
+      .insert(roomData)
+      .select()
+      .single();
+
+    if (error) {
+      const errorMsg = handleSupabaseError(error);
+      return res.status(500).json(errorMsg);
+    }
+
+    const formatted = toCamelCase(room);
     res.status(201).json({
-      ...room,
-      images: room.images ? JSON.parse(room.images) : []
+      ...formatted,
+      images: formatted.images || []
     });
   } catch (error) {
     console.error('Create room error:', error);
@@ -95,21 +126,34 @@ router.put('/:id', async (req, res) => {
   try {
     const { roomNumber, roomName, monthlyRent, status, images, notes } = req.body;
 
-    const room = await req.prisma.room.update({
-      where: { id: req.params.id },
-      data: {
-        roomNumber: roomNumber?.toUpperCase(),
-        roomName,
-        monthlyRent: monthlyRent ? parseFloat(monthlyRent) : undefined,
-        status,
-        images: images ? JSON.stringify(images) : undefined,
-        notes
-      }
-    });
+    const updateData = {};
+    if (roomNumber) updateData.room_number = roomNumber.toUpperCase();
+    if (roomName !== undefined) updateData.room_name = roomName;
+    if (monthlyRent !== undefined) updateData.monthly_rent = parseFloat(monthlyRent);
+    if (status !== undefined) updateData.status = status;
+    if (images !== undefined) updateData.images = images;
+    if (notes !== undefined) updateData.notes = notes;
 
+    const { data: room, error } = await req.supabase
+      .from('rooms')
+      .update(updateData)
+      .eq('id', req.params.id)
+      .select()
+      .single();
+
+    if (error) {
+      const errorMsg = handleSupabaseError(error);
+      return res.status(500).json(errorMsg);
+    }
+
+    if (!room) {
+      return res.status(404).json({ error: 'Room not found' });
+    }
+
+    const formatted = toCamelCase(room);
     res.json({
-      ...room,
-      images: room.images ? JSON.parse(room.images) : []
+      ...formatted,
+      images: formatted.images || []
     });
   } catch (error) {
     console.error('Update room error:', error);
@@ -121,41 +165,55 @@ router.put('/:id', async (req, res) => {
 router.delete('/:id', async (req, res) => {
   try {
     // Check if room has a tenant
-    const room = await req.prisma.room.findUnique({
-      where: { id: req.params.id },
-      include: { 
-        tenant: true,
-        payments: true
-      }
-    });
+    const { data: room, error: roomError } = await req.supabase
+      .from('rooms')
+      .select(`
+        *,
+        tenants (*),
+        payments (id)
+      `)
+      .eq('id', req.params.id)
+      .single();
 
-    if (!room) {
+    if (roomError || !room) {
       return res.status(404).json({ error: 'Room not found' });
     }
 
-    if (room.tenant) {
+    const formattedRoom = toCamelCase(room);
+    if (formattedRoom.tenants && formattedRoom.tenants.length > 0) {
       return res.status(400).json({ error: 'Cannot delete room with active tenant' });
     }
 
-    // Delete room, related payments, and alerts in a transaction
-    await req.prisma.$transaction(async (tx) => {
-      // Delete all payments for this room (if any exist)
-      if (room.payments && room.payments.length > 0) {
-        await tx.payment.deleteMany({
-          where: { roomId: req.params.id }
-        });
-      }
+    // Delete related payments
+    const { error: paymentsError } = await req.supabase
+      .from('payments')
+      .delete()
+      .eq('room_id', req.params.id);
 
-      // Delete all alerts for this room
-      await tx.alert.deleteMany({
-        where: { roomId: req.params.id }
-      });
+    if (paymentsError) {
+      console.error('Error deleting payments:', paymentsError);
+    }
 
-      // Delete the room
-      await tx.room.delete({
-        where: { id: req.params.id }
-      });
-    });
+    // Delete related alerts
+    const { error: alertsError } = await req.supabase
+      .from('alerts')
+      .delete()
+      .eq('room_id', req.params.id);
+
+    if (alertsError) {
+      console.error('Error deleting alerts:', alertsError);
+    }
+
+    // Delete the room
+    const { error: deleteError } = await req.supabase
+      .from('rooms')
+      .delete()
+      .eq('id', req.params.id);
+
+    if (deleteError) {
+      const errorMsg = handleSupabaseError(deleteError);
+      return res.status(500).json(errorMsg);
+    }
 
     res.json({ message: 'Room deleted successfully' });
   } catch (error) {
@@ -165,4 +223,3 @@ router.delete('/:id', async (req, res) => {
 });
 
 export default router;
-

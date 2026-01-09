@@ -1,8 +1,9 @@
+import 'dotenv/config';
 import express from 'express';
 import cors from 'cors';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import { PrismaClient } from '@prisma/client';
+import { supabase } from './lib/supabase.js';
 
 // Import routes
 import authRoutes from './routes/auth.js';
@@ -16,22 +17,26 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const app = express();
-const prisma = new PrismaClient();
 const PORT = process.env.PORT || 3001;
 const isProduction = process.env.NODE_ENV === 'production';
 
 // Middleware
 app.use(cors({
   origin: isProduction 
-    ? [process.env.FRONTEND_URL, 'https://*.railway.app', 'https://*.up.railway.app'].filter(Boolean)
+    ? [
+        process.env.FRONTEND_URL, 
+        'https://*.railway.app', 
+        'https://*.up.railway.app',
+        'https://*.vercel.app'
+      ].filter(Boolean)
     : ['http://localhost:8080', 'http://localhost:5173', 'http://localhost:3000'],
   credentials: true
 }));
 app.use(express.json({ limit: '10mb' })); // Increased for image uploads
 
-// Make prisma available to routes
+// Make supabase available to routes
 app.use((req, res, next) => {
-  req.prisma = prisma;
+  req.supabase = supabase;
   next();
 });
 
@@ -75,7 +80,7 @@ app.listen(PORT, '0.0.0.0', () => {
 });
 
 // Graceful shutdown
-process.on('SIGINT', async () => {
-  await prisma.$disconnect();
+process.on('SIGINT', () => {
+  console.log('Shutting down gracefully...');
   process.exit();
 });

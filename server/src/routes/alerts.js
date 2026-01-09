@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { authMiddleware } from '../middleware/auth.js';
+import { handleSupabaseError, toCamelCase, toSnakeCase } from '../lib/supabase.js';
 
 const router = Router();
 
@@ -8,11 +9,18 @@ router.use(authMiddleware);
 // GET /api/alerts
 router.get('/', async (req, res) => {
   try {
-    const alerts = await req.prisma.alert.findMany({
-      orderBy: { date: 'desc' }
-    });
+    const { data: alerts, error } = await req.supabase
+      .from('alerts')
+      .select('*')
+      .order('date', { ascending: false });
 
-    res.json(alerts);
+    if (error) {
+      const errorMsg = handleSupabaseError(error);
+      return res.status(500).json(errorMsg);
+    }
+
+    const formatted = alerts.map(alert => toCamelCase(alert));
+    res.json(formatted);
   } catch (error) {
     console.error('Get alerts error:', error);
     res.status(500).json({ error: 'Failed to fetch alerts' });
@@ -24,17 +32,27 @@ router.post('/', async (req, res) => {
   try {
     const { type, message, roomId, tenantId, date } = req.body;
 
-    const alert = await req.prisma.alert.create({
-      data: {
-        type,
-        message,
-        roomId,
-        tenantId,
-        date: date ? new Date(date) : new Date()
-      }
+    const alertData = toSnakeCase({
+      type,
+      message,
+      roomId: roomId || null,
+      tenantId: tenantId || null,
+      date: date ? new Date(date).toISOString() : new Date().toISOString()
     });
 
-    res.status(201).json(alert);
+    const { data: alert, error } = await req.supabase
+      .from('alerts')
+      .insert(alertData)
+      .select()
+      .single();
+
+    if (error) {
+      const errorMsg = handleSupabaseError(error);
+      return res.status(500).json(errorMsg);
+    }
+
+    const formatted = toCamelCase(alert);
+    res.status(201).json(formatted);
   } catch (error) {
     console.error('Create alert error:', error);
     res.status(500).json({ error: 'Failed to create alert' });
@@ -44,12 +62,24 @@ router.post('/', async (req, res) => {
 // PATCH /api/alerts/:id/read
 router.patch('/:id/read', async (req, res) => {
   try {
-    const alert = await req.prisma.alert.update({
-      where: { id: req.params.id },
-      data: { isRead: true }
-    });
+    const { data: alert, error } = await req.supabase
+      .from('alerts')
+      .update({ is_read: true })
+      .eq('id', req.params.id)
+      .select()
+      .single();
 
-    res.json(alert);
+    if (error) {
+      const errorMsg = handleSupabaseError(error);
+      return res.status(500).json(errorMsg);
+    }
+
+    if (!alert) {
+      return res.status(404).json({ error: 'Alert not found' });
+    }
+
+    const formatted = toCamelCase(alert);
+    res.json(formatted);
   } catch (error) {
     console.error('Mark read error:', error);
     res.status(500).json({ error: 'Failed to mark alert as read' });
@@ -59,9 +89,15 @@ router.patch('/:id/read', async (req, res) => {
 // DELETE /api/alerts/:id
 router.delete('/:id', async (req, res) => {
   try {
-    await req.prisma.alert.delete({
-      where: { id: req.params.id }
-    });
+    const { error } = await req.supabase
+      .from('alerts')
+      .delete()
+      .eq('id', req.params.id);
+
+    if (error) {
+      const errorMsg = handleSupabaseError(error);
+      return res.status(500).json(errorMsg);
+    }
 
     res.json({ message: 'Alert deleted successfully' });
   } catch (error) {
@@ -71,4 +107,3 @@ router.delete('/:id', async (req, res) => {
 });
 
 export default router;
-
