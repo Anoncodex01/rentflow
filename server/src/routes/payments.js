@@ -11,11 +11,7 @@ router.get('/', async (req, res) => {
   try {
     const { data: payments, error } = await req.supabase
       .from('payments')
-      .select(`
-        *,
-        tenants (*),
-        rooms (*)
-      `)
+      .select('*')
       .order('created_at', { ascending: false });
 
     if (error) {
@@ -23,14 +19,32 @@ router.get('/', async (req, res) => {
       return res.status(500).json(errorMsg);
     }
 
+    // Fetch related tenants and rooms
+    const tenantIds = [...new Set(payments.map(p => p.tenant_id).filter(Boolean))];
+    const roomIds = [...new Set(payments.map(p => p.room_id).filter(Boolean))];
+
+    // Fetch tenants and rooms in parallel
+    const [tenantsResult, roomsResult] = await Promise.all([
+      tenantIds.length > 0 
+        ? req.supabase.from('tenants').select('*').in('id', tenantIds)
+        : { data: [], error: null },
+      roomIds.length > 0
+        ? req.supabase.from('rooms').select('*').in('id', roomIds)
+        : { data: [], error: null }
+    ]);
+
+    // Create lookup maps (using original snake_case IDs)
+    const tenantsMap = new Map((tenantsResult.data || []).map(t => [t.id, toCamelCase(t)]));
+    const roomsMap = new Map((roomsResult.data || []).map(r => [r.id, toCamelCase(r)]));
+
+    // Combine data
     const formatted = payments.map(payment => {
       const p = toCamelCase(payment);
+      // Use original snake_case payment object to get IDs
       return {
         ...p,
-        tenant: p.tenants || null,
-        room: p.rooms || null,
-        tenants: undefined,
-        rooms: undefined
+        tenant: payment.tenant_id ? (tenantsMap.get(payment.tenant_id) || null) : null,
+        room: payment.room_id ? (roomsMap.get(payment.room_id) || null) : null
       };
     });
 
@@ -46,11 +60,7 @@ router.get('/:id', async (req, res) => {
   try {
     const { data: payment, error } = await req.supabase
       .from('payments')
-      .select(`
-        *,
-        tenants (*),
-        rooms (*)
-      `)
+      .select('*')
       .eq('id', req.params.id)
       .single();
 
@@ -58,13 +68,17 @@ router.get('/:id', async (req, res) => {
       return res.status(404).json({ error: 'Payment not found' });
     }
 
+    // Fetch related tenant and room
+    const [tenantResult, roomResult] = await Promise.all([
+      req.supabase.from('tenants').select('*').eq('id', payment.tenant_id).single(),
+      req.supabase.from('rooms').select('*').eq('id', payment.room_id).single()
+    ]);
+
     const formatted = toCamelCase(payment);
     res.json({
       ...formatted,
-      tenant: formatted.tenants || null,
-      room: formatted.rooms || null,
-      tenants: undefined,
-      rooms: undefined
+      tenant: tenantResult.data ? toCamelCase(tenantResult.data) : null,
+      room: roomResult.data ? toCamelCase(roomResult.data) : null
     });
   } catch (error) {
     console.error('Get payment error:', error);
@@ -94,11 +108,7 @@ router.post('/', async (req, res) => {
     const { data: payment, error } = await req.supabase
       .from('payments')
       .insert(paymentData)
-      .select(`
-        *,
-        tenants (*),
-        rooms (*)
-      `)
+      .select('*')
       .single();
 
     if (error) {
@@ -106,13 +116,17 @@ router.post('/', async (req, res) => {
       return res.status(500).json(errorMsg);
     }
 
+    // Fetch related tenant and room
+    const [tenantResult, roomResult] = await Promise.all([
+      req.supabase.from('tenants').select('*').eq('id', payment.tenant_id).single(),
+      req.supabase.from('rooms').select('*').eq('id', payment.room_id).single()
+    ]);
+
     const formatted = toCamelCase(payment);
     res.status(201).json({
       ...formatted,
-      tenant: formatted.tenants || null,
-      room: formatted.rooms || null,
-      tenants: undefined,
-      rooms: undefined
+      tenant: tenantResult.data ? toCamelCase(tenantResult.data) : null,
+      room: roomResult.data ? toCamelCase(roomResult.data) : null
     });
   } catch (error) {
     console.error('Create payment error:', error);
@@ -137,11 +151,7 @@ router.put('/:id', async (req, res) => {
       .from('payments')
       .update(updateData)
       .eq('id', req.params.id)
-      .select(`
-        *,
-        tenants (*),
-        rooms (*)
-      `)
+      .select('*')
       .single();
 
     if (error) {
@@ -153,13 +163,17 @@ router.put('/:id', async (req, res) => {
       return res.status(404).json({ error: 'Payment not found' });
     }
 
+    // Fetch related tenant and room
+    const [tenantResult, roomResult] = await Promise.all([
+      req.supabase.from('tenants').select('*').eq('id', payment.tenant_id).single(),
+      req.supabase.from('rooms').select('*').eq('id', payment.room_id).single()
+    ]);
+
     const formatted = toCamelCase(payment);
     res.json({
       ...formatted,
-      tenant: formatted.tenants || null,
-      room: formatted.rooms || null,
-      tenants: undefined,
-      rooms: undefined
+      tenant: tenantResult.data ? toCamelCase(tenantResult.data) : null,
+      room: roomResult.data ? toCamelCase(roomResult.data) : null
     });
   } catch (error) {
     console.error('Update payment error:', error);
@@ -177,11 +191,7 @@ router.patch('/:id/mark-paid', async (req, res) => {
         date_paid: new Date().toISOString()
       })
       .eq('id', req.params.id)
-      .select(`
-        *,
-        tenants (*),
-        rooms (*)
-      `)
+      .select('*')
       .single();
 
     if (error) {
@@ -193,13 +203,17 @@ router.patch('/:id/mark-paid', async (req, res) => {
       return res.status(404).json({ error: 'Payment not found' });
     }
 
+    // Fetch related tenant and room
+    const [tenantResult, roomResult] = await Promise.all([
+      req.supabase.from('tenants').select('*').eq('id', payment.tenant_id).single(),
+      req.supabase.from('rooms').select('*').eq('id', payment.room_id).single()
+    ]);
+
     const formatted = toCamelCase(payment);
     res.json({
       ...formatted,
-      tenant: formatted.tenants || null,
-      room: formatted.rooms || null,
-      tenants: undefined,
-      rooms: undefined
+      tenant: tenantResult.data ? toCamelCase(tenantResult.data) : null,
+      room: roomResult.data ? toCamelCase(roomResult.data) : null
     });
   } catch (error) {
     console.error('Mark paid error:', error);

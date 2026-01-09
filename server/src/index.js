@@ -7,6 +7,7 @@ import { supabase } from './lib/supabase.js';
 
 // Import routes
 import authRoutes from './routes/auth.js';
+import uploadRoutes from './routes/upload.js';
 import roomRoutes from './routes/rooms.js';
 import tenantRoutes from './routes/tenants.js';
 import paymentRoutes from './routes/payments.js';
@@ -44,6 +45,7 @@ app.use((req, res, next) => {
 
 // API Routes
 app.use('/api/auth', authRoutes);
+app.use('/api/upload', uploadRoutes);
 app.use('/api/rooms', roomRoutes);
 app.use('/api/tenants', tenantRoutes);
 app.use('/api/payments', paymentRoutes);

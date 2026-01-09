@@ -82,7 +82,15 @@ export function ViewPaymentDialog({
                 <Home className="h-4 w-4" />
                 <span className="text-xs">Room</span>
               </div>
-              <p className="font-semibold">{room ? `Room ${room.roomNumber}` : 'Unknown'}</p>
+              <p className="font-semibold">
+                {room?.roomNumber 
+                  ? `Room ${room.roomNumber}` 
+                  : room?.roomName 
+                    ? room.roomName 
+                    : room 
+                      ? 'Room details unavailable'
+                      : 'Unknown'}
+              </p>
             </div>
           </div>
 

@@ -25,18 +25,29 @@ export const authMiddleware = async (req, res, next) => {
     const token = authHeader.split(' ')[1];
     const decoded = verifyToken(token);
     
-    const user = await req.prisma.user.findUnique({
-      where: { id: decoded.id },
-      select: { id: true, email: true, name: true, role: true, avatar: true }
-    });
+    // Get user from Supabase
+    const { data: user, error } = await req.supabase
+      .from('users')
+      .select('id, email, name, role, avatar')
+      .eq('id', decoded.id)
+      .single();
 
-    if (!user) {
+    if (error || !user) {
       return res.status(401).json({ error: 'User not found' });
     }
 
-    req.user = user;
+    // Convert snake_case to camelCase
+    req.user = {
+      id: user.id,
+      email: user.email,
+      name: user.name,
+      role: user.role,
+      avatar: user.avatar
+    };
+
     next();
   } catch (error) {
+    console.error('Auth middleware error:', error);
     return res.status(401).json({ error: 'Invalid token' });
   }
 };
