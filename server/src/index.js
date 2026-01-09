@@ -25,6 +25,8 @@ app.use(cors({
   origin: isProduction 
     ? [
         process.env.FRONTEND_URL, 
+        'https://kiminvestment.space',
+        'https://www.kiminvestment.space',
         'https://*.railway.app', 
         'https://*.up.railway.app',
         'https://*.vercel.app'
