@@ -123,7 +123,10 @@ router.delete('/:id', async (req, res) => {
     // Check if room has a tenant
     const room = await req.prisma.room.findUnique({
       where: { id: req.params.id },
-      include: { tenant: true }
+      include: { 
+        tenant: true,
+        payments: true
+      }
     });
 
     if (!room) {
@@ -134,8 +137,24 @@ router.delete('/:id', async (req, res) => {
       return res.status(400).json({ error: 'Cannot delete room with active tenant' });
     }
 
-    await req.prisma.room.delete({
-      where: { id: req.params.id }
+    // Delete room, related payments, and alerts in a transaction
+    await req.prisma.$transaction(async (tx) => {
+      // Delete all payments for this room (if any exist)
+      if (room.payments && room.payments.length > 0) {
+        await tx.payment.deleteMany({
+          where: { roomId: req.params.id }
+        });
+      }
+
+      // Delete all alerts for this room
+      await tx.alert.deleteMany({
+        where: { roomId: req.params.id }
+      });
+
+      // Delete the room
+      await tx.room.delete({
+        where: { id: req.params.id }
+      });
     });
 
     res.json({ message: 'Room deleted successfully' });

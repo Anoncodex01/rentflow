@@ -47,7 +47,7 @@ model Tenant {
   updatedAt   DateTime  @updatedAt
   
   roomId      String    @unique
-  room        Room      @relation(fields: [roomId], references: [id])
+  room        Room      @relation(fields: [roomId], references: [id], onDelete: Cascade)
   payments    Payment[]
 }
 
@@ -62,9 +62,9 @@ model Payment {
   updatedAt    DateTime @updatedAt
   
   tenantId     String
-  tenant       Tenant   @relation(fields: [tenantId], references: [id])
+  tenant       Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   roomId       String
-  room         Room     @relation(fields: [roomId], references: [id])
+  room         Room     @relation(fields: [roomId], references: [id], onDelete: Cascade)
 }
 
 model Alert {

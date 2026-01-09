@@ -127,23 +127,41 @@ router.put('/:id', async (req, res) => {
 router.delete('/:id', async (req, res) => {
   try {
     const tenant = await req.prisma.tenant.findUnique({
-      where: { id: req.params.id }
+      where: { id: req.params.id },
+      include: {
+        payments: true
+      }
     });
 
     if (!tenant) {
       return res.status(404).json({ error: 'Tenant not found' });
     }
 
-    // Delete tenant and update room status in a transaction
-    await req.prisma.$transaction([
-      req.prisma.tenant.delete({
+    // Delete tenant, related payments, alerts, and update room status in a transaction
+    await req.prisma.$transaction(async (tx) => {
+      // Delete all payments for this tenant
+      if (tenant.payments.length > 0) {
+        await tx.payment.deleteMany({
+          where: { tenantId: req.params.id }
+        });
+      }
+
+      // Delete all alerts for this tenant
+      await tx.alert.deleteMany({
+        where: { tenantId: req.params.id }
+      });
+
+      // Delete the tenant
+      await tx.tenant.delete({
         where: { id: req.params.id }
-      }),
-      req.prisma.room.update({
+      });
+
+      // Update room status to vacant
+      await tx.room.update({
         where: { id: tenant.roomId },
         data: { status: 'vacant' }
-      })
-    ]);
+      });
+    });
 
     res.json({ message: 'Tenant deleted successfully' });
   } catch (error) {
